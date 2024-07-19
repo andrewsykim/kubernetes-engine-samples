@@ -1,0 +1,116 @@
+# Copyright 2024 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# [START gke_ai_ml_gke_ray_raytrain_fine_tune_gemma_raycluster]
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: fine-tune-gemma-cluster
+spec:
+  rayVersion: '2.9.0'
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+    template:
+      metadata:
+        annotations:
+          gke-gcsfuse/volumes: "true"
+          gke-gcsfuse/cpu-limit: "0"
+          gke-gcsfuse/memory-limit: 5Gi
+          gke-gcsfuse/ephemeral-storage-limit: 8Gi
+      spec:
+        serviceAccountName: fine-tuning-gemma
+        terminationGracePeriodSeconds: 1
+        containers:
+        - name: ray-head
+          image: rayproject/ray-ml:2.9.0
+          env:
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-secret
+                key: hf_api_token
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          resources:
+            limits:
+              cpu: "8"
+              memory: "30Gi"
+            requests:
+              cpu: "8"
+              memory: "30Gi"
+          volumeMounts:
+            - mountPath: /mnt/cluster_storage
+              name: cluster-storage
+        volumes:
+        - name: cluster-storage
+          csi:
+            driver: gcsfuse.csi.storage.gke.io
+            volumeAttributes:
+              bucketName: andrewsy-fine-tune-gemma
+              mountOptions: "implicit-dirs,uid=1000,gid=100"
+  workerGroupSpecs:
+  - replicas: 1
+    minReplicas: 1
+    maxReplicas: 5
+    groupName: worker-group
+    rayStartParams: {}
+    template:
+      metadata:
+        annotations:
+          gke-gcsfuse/volumes: "true"
+          gke-gcsfuse/cpu-limit: "0"
+          gke-gcsfuse/memory-limit: 5Gi
+          gke-gcsfuse/ephemeral-storage-limit: 100Gi
+      spec:
+        serviceAccountName: fine-tuning-gemma
+        terminationGracePeriodSeconds: 1
+        containers:
+        - name: ray-worker
+          image: rayproject/ray-ml:2.9.0
+          env:
+          - name: HUGGING_FACE_HUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-secret
+                key: hf_api_token
+          resources:
+            limits:
+              cpu: "10"
+              memory: "65G"
+              nvidia.com/gpu: 1
+              ephemeral-storage: 100Gi
+            requests:
+              cpu: "10"
+              memory: "65G"
+              nvidia.com/gpu: 1
+              ephemeral-storage: 100Gi
+          volumeMounts:
+            - mountPath: /mnt/cluster_storage
+              name: cluster-storage
+        volumes:
+        - name: cluster-storage
+          csi:
+            driver: gcsfuse.csi.storage.gke.io
+            volumeAttributes:
+              bucketName: andrewsy-fine-tune-gemma
+              mountOptions: "implicit-dirs,uid=1000,gid=100"
+        nodeSelector:
+          cloud.google.com/gke-accelerator: nvidia-tesla-a100
+# [END gke_ai_ml_gke_ray_raytrain_fine_tune_gemma_raycluster]
